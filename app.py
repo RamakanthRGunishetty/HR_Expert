@@ -1,7 +1,10 @@
-import io
 import docx2txt
 import streamlit as st
 import PyPDF2
+import spacy
+from spacy.matcher import PhraseMatcher
+
+nlp = spacy.load("en_core_web_sm")
 
 def extract_text_from_pdf(pdf_file):
     pdf_reader = PyPDF2.PdfReader(pdf_file)
@@ -10,69 +13,50 @@ def extract_text_from_pdf(pdf_file):
         text += pdf_reader.pages[page_num].extract_text()
     return text
 
-def extract_skills_from_resume(resume_file):
-    # Check the file type
-    if resume_file.name.endswith('.docx'):
-        text = docx2txt.process(resume_file)
-    elif resume_file.name.endswith('.pdf'):
-        text = extract_text_from_pdf(resume_file)
-    else:
-        st.error("Unsupported file format. Please upload a DOCX or PDF file.")
-        return []
+def extract_skills(text):
+    doc = nlp(text)
 
-    # Define a list of skills
-    skills_list = [
-        "Python", "Data Analysis", "Communication",
-        "C/C++", "Java", "HTML/CSS", "JavaScript", "EJS", "Handlebars", "Typescript",
-        "MySQL", "MongoDB", "React", "Node.js", "Bootstrap", "Express", "SpringBoot",
-        "pandas", "NumPy", "Matplotlib", "Seaborn", "Tensorflow",
-        "Git/GitHub", "Unix", "VS Code", "Postman", "Figma", "Jupyter", "Eclipse", "PowerBI"
-    ]
+    skill_keywords = ["Python", "Java", "C++", "HTML", "CSS", "JavaScript", "Git", "MySQL", "MongoDB", "Azure", "AWS"]
 
-    # Extract skills based on keyword matching
-    skills = [skill for skill in skills_list if skill.lower() in text.lower()]
+    matcher = PhraseMatcher(nlp.vocab)
+    patterns = [nlp(skill) for skill in skill_keywords]
+    matcher.add("Skills", None, *patterns)
 
-    return skills
+    matches = matcher(doc)
 
-def calculate_skill_percentage(required_skills, resume_skills):
-    # Calculate the percentage of required skills present in the resume
-    matching_skills = set(required_skills) & set(resume_skills)
-    percentage = (len(matching_skills) / len(required_skills)) * 100
+    matched_skills = [doc[start:end].text for _, start, end in matches]
+
+    return matched_skills
+
+def calculate_skill_percentage(jd_skills, resume_skills):
+    matching_skills = set(jd_skills) & set(resume_skills)
+    percentage = (len(matching_skills) / len(jd_skills)) * 100
     return percentage
 
 def get_improvement_suggestions(required_skills, resume_skills):
-    # Identify skills that are missing in the resume
     missing_skills = set(required_skills) - set(resume_skills)
     return missing_skills
 
 def main():
     st.title("HR Recruitment System")
 
-    # Upload a resume
+    jd_file = st.file_uploader("Upload Job Description (JD)", type=["docx", "pdf"])
+
     uploaded_file = st.file_uploader("Upload a resume", type=["docx", "pdf"])
 
-    if uploaded_file is not None:
-        # Define required skills (replace with your own list)
-        required_skills = [
-            "Python", "Data Analysis", "Communication",
-            "C/C++", "Java", "HTML/CSS", "JavaScript", "EJS", "Handlebars", "Typescript",
-            "MySQL", "MongoDB", "React", "Node.js", "Bootstrap", "Express", "SpringBoot",
-            "pandas", "NumPy", "Matplotlib", "Seaborn", "Tensorflow",
-            "Git/GitHub", "Unix", "VS Code", "Postman", "Figma", "Jupyter", "Eclipse", "PowerBI"
-        ]
+    if jd_file is not None and uploaded_file is not None:
+        jd_text = extract_text_from_pdf(jd_file) if jd_file.name.endswith('.pdf') else docx2txt.process(jd_file)
+        jd_skills = extract_skills(jd_text)
 
-        # Extract skills from the uploaded resume
-        resume_skills = extract_skills_from_resume(uploaded_file)
+        resume_text = extract_text_from_pdf(uploaded_file) if uploaded_file.name.endswith('.pdf') else docx2txt.process(uploaded_file)
+        resume_skills = extract_skills(resume_text)
 
-        # Calculate skill percentage
-        percentage = calculate_skill_percentage(required_skills, resume_skills)
+        percentage = calculate_skill_percentage(jd_skills, resume_skills)
 
-        # Display the percentage
         st.write(f"Skill Match Percentage: {percentage:.2f}%")
 
-        # Provide improvement suggestions
         if percentage < 100:
-            missing_skills = get_improvement_suggestions(required_skills, resume_skills)
+            missing_skills = get_improvement_suggestions(jd_skills, resume_skills)
             st.write("To improve your skill set, consider working on the following skills:")
             for skill in missing_skills:
                 st.write(f"- {skill}")
